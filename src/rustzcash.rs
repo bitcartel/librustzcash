@@ -1,4 +1,6 @@
 extern crate bellman;
+extern crate blake2_rfc;
+extern crate byteorder;
 extern crate libc;
 extern crate pairing;
 extern crate sapling_crypto;
@@ -12,9 +14,12 @@ use sapling_crypto::{jubjub::JubjubBls12, pedersen_hash::{pedersen_hash, Persona
 
 use bellman::groth16::{prepare_verifying_key, Parameters, PreparedVerifyingKey, VerifyingKey};
 
-use libc::{c_char, c_uchar, size_t, uint64_t};
+use libc::{c_char, c_uchar, size_t, uint32_t, uint64_t};
 use std::ffi::CStr;
 use std::fs::File;
+use std::slice;
+
+pub mod equihash;
 
 lazy_static! {
     static ref JUBJUB: JubjubBls12 = { JubjubBls12::new() };
@@ -148,6 +153,26 @@ pub extern "system" fn librustzcash_merkle_hash(
 #[no_mangle]
 pub extern "system" fn librustzcash_xor(a: uint64_t, b: uint64_t) -> uint64_t {
     a ^ b
+}
+
+#[no_mangle]
+pub extern "system" fn librustzcash_eh_isvalid(
+    n: uint32_t,
+    k: uint32_t,
+    input: *const c_uchar,
+    input_len: size_t,
+    nonce: *const c_uchar,
+    nonce_len: size_t,
+    soln: *const c_uchar,
+    soln_len: size_t,
+) -> bool {
+    if (k >= n) || (n % 8 != 0) || (soln_len != (1 << k) * ((n / (k + 1)) as usize + 1) / 8) {
+        return false;
+    }
+    let rs_input = unsafe { slice::from_raw_parts(input, input_len) };
+    let rs_nonce = unsafe { slice::from_raw_parts(nonce, nonce_len) };
+    let rs_soln = unsafe { slice::from_raw_parts(soln, soln_len) };
+    equihash::is_valid_solution(n, k, rs_input, rs_nonce, rs_soln)
 }
 
 #[test]
